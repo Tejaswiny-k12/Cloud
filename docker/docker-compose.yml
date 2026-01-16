@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # MQTT Broker - Mosquitto with TLS
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto-broker
+    ports:
+      - "1883:1883"     # Standard MQTT (backward compatibility)
+      - "8883:8883"     # Secure MQTT with TLS
+      - "9001:9001"     # WebSocket
+      - "8884:8884"     # Secure WebSocket
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./certs:/mosquitto/certs:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    environment:
+      TZ: UTC
+    healthcheck:
+      test: mosquitto_sub -h localhost -t test -C 1 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  # Flask API Server
+  flask-api:
+    build:
+      context: ..
+      dockerfile: docker/dockerfile
+    container_name: flask-api-server
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_APP: app.py
+      FLASK_ENV: production
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 8883
+      MQTT_USE_TLS: "true"
+      MQTT_TLS_CA_CERTS: /app/certs/ca.crt
+      MQTT_TOPIC: /iot/health
+    volumes:
+      - ../src:/app
+      - ../ml/model.pkl:/app/model.pkl
+      - ../ml/scaler.pkl:/app/scaler.pkl
+      - ./certs:/app/certs:ro
+      - anomalies_db:/app/data
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - iot-network
+    restart: unless-stopped
+    healthcheck:
+      test: curl -f http://localhost:5000/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Streamlit Dashboard
+  streamlit-dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.streamlit
+    container_name: streamlit-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      STREAMLIT_SERVER_HEADLESS: true
+    volumes:
+      - ../src/dashboard.py:/app/dashboard.py
+      - anomalies_db:/app/data
+    depends_on:
+      - flask-api
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+networks:
+  iot-network:
+    driver: bridge
+
+volumes:
+  mosquitto_data:
+  mosquitto_logs:
+  anomalies_db:

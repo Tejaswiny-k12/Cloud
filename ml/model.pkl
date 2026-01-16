@@ -1,0 +1,22 @@
+import pandas as pd
+from sklearn.ensemble import IsolationForest
+import joblib
+import random
+
+# Generate mock "normal" data
+data = {
+    "heart_rate": [random.randint(65, 90) for _ in range(100)],
+    "body_temp": [round(random.uniform(36.2, 37.5), 2) for _ in range(100)],
+    "signal_strength": [random.randint(-70, -45) for _ in range(100)]
+}
+
+df = pd.DataFrame(data)
+
+# Train Isolation Forest model
+model = IsolationForest(contamination=0.05)
+model.fit(df)
+
+# Save model
+joblib.dump(model, "model.pkl")
+
+print("✅ model.pkl created successfully.")
